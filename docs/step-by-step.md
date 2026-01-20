@@ -676,4 +676,56 @@ O GPT-4o Vision analisa o documento visualmente, preservando contexto de layout,
 
 ---
 
+### 9.2 Correção do Fluxo DI - JSON Inválido e Disparo Prematuro (20/01/2026)
+
+**Problema 1: Erro "JSON parameter needs to be valid JSON" no N8N**
+
+O node "OpenAI Generate Version (with PDF)" do workflow N8N falhava quando o formulário DI era preenchido, exibindo erro de JSON inválido.
+
+**Causa:** O template do N8N usava `JSON.stringify($json.di_answers)` inline dentro de uma string JSON. Quando `di_answers` continha dados, as aspas duplas do resultado do stringify quebravam o JSON externo.
+
+Trecho problemático:
+```
+{{ $json.di_answers && $json.di_answers.length > 0 && $json.current_condition === 'DI' ? '**Respostas corretas para DI:** ' + JSON.stringify($json.di_answers) : '' }}
+```
+
+**Solução:**
+1. Modificado o node "Split by Condition" para pré-formatar os `di_answers` como texto legível
+2. Nova propriedade `di_answers_text` gerada com formato seguro: `Questão {id}: alternativa {key}`
+3. Template do OpenAI atualizado para usar `{{ $json.di_answers_text || '' }}` ao invés de JSON.stringify inline
+
+**Arquivo modificado:** `n8n/adapte-minha-prova-workflow.json`
+
+---
+
+**Problema 2: Disparo prematuro do webhook generate**
+
+Quando DI era selecionado, o webhook generate era disparado automaticamente após a análise, sem aguardar o preenchimento do formulário de respostas DI.
+
+**Causa:** A lógica original verificava `needsDIInput = hasDI && hasObjectiveQuestions`. Se o N8N não extraísse questões objetivas corretamente (por qualquer motivo), `hasObjectiveQuestions` seria false, e o auto-generate seria disparado indevidamente.
+
+**Solução:**
+1. Modificada a lógica para `needsDIInput = hasDI` (simplificado)
+2. Se DI está selecionado, **SEMPRE** vai para `WAITING_DI_INPUT`
+3. O professor sempre terá a oportunidade de revisar e informar as respostas corretas
+4. Adicionados logs detalhados para facilitar debug futuro
+
+**Arquivo modificado:** `src/app/api/n8n/callback/route.ts`
+
+**Mudança de lógica:**
+```typescript
+// Antes (problemático)
+const needsDIInput = hasDI && hasObjectiveQuestions
+
+// Depois (corrigido)
+const needsDIInput = hasDI
+```
+
+**Benefícios:**
+- Fluxo DI agora funciona corretamente
+- Professor sempre pode revisar questões quando DI é selecionado
+- Logs melhorados para diagnóstico de problemas futuros
+
+---
+
 *Documento gerado automaticamente durante o desenvolvimento.*

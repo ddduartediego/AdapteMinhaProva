@@ -72,15 +72,32 @@ async function handleAnalyzeCallback(
     return
   }
 
-  const hasDI = exam.selected_conditions?.includes('DI')
+  // Verificar se DI está selecionado (garantir que é um array válido)
+  const selectedConditions = Array.isArray(exam.selected_conditions) 
+    ? exam.selected_conditions 
+    : []
+  const hasDI = selectedConditions.includes('DI')
+  
   const hasObjectiveQuestions =
     extracted?.objective_questions && extracted.objective_questions.length > 0
 
-  // Determine if we need DI input or can auto-generate
-  const needsDIInput = hasDI && hasObjectiveQuestions
+  // IMPORTANTE: Se DI está selecionado, SEMPRE aguardar input do professor
+  // Isso garante que o professor possa revisar as questões e indicar respostas
+  // mesmo que o N8N não tenha extraído questões objetivas corretamente
+  const needsDIInput = hasDI
+
+  // Log detalhado para debug
+  console.log('Analyze callback decision:', {
+    exam_id,
+    hasDI,
+    hasObjectiveQuestions,
+    needsDIInput,
+    selectedConditions,
+    extractedQuestionsCount: extracted?.objective_questions?.length || 0
+  })
 
   // Update exam with analysis results
-  // If no DI input needed, go directly to GENERATING status
+  // If DI is selected, ALWAYS go to WAITING_DI_INPUT to get teacher input
   const nextStatus = needsDIInput ? 'WAITING_DI_INPUT' : 'GENERATING'
 
   await supabase
@@ -105,7 +122,7 @@ async function handleAnalyzeCallback(
       prompt: q.prompt,
       options: q.options,
       question_type: 'objective',
-      needs_di_answer: hasDI || false,
+      needs_di_answer: hasDI,
     }))
 
     const { error: questionsError } = await supabase
@@ -117,7 +134,8 @@ async function handleAnalyzeCallback(
     }
   }
 
-  // Auto-trigger generate if no DI input needed
+  // Auto-trigger generate ONLY if DI is NOT selected
+  // When DI is selected, we ALWAYS wait for teacher input
   if (!needsDIInput) {
     console.log('Auto-triggering generate for exam:', exam_id)
 
