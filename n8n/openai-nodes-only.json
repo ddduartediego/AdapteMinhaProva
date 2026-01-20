@@ -1,0 +1,76 @@
+{
+  "meta": {
+    "instanceId": "adapte-minha-prova"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Você é um especialista em educação brasileira, com profundo conhecimento da BNCC (Base Nacional Comum Curricular) e da Taxonomia de Bloom.\\n\\nSua tarefa é analisar provas escolares e identificar:\\n1. Código e descrição da habilidade BNCC mais relevante\\n2. Nível cognitivo da Taxonomia de Bloom predominante\\n3. Questões objetivas (múltipla escolha) que precisam de adaptação para DI\\n\\nRESPONDA SEMPRE EM JSON válido com a seguinte estrutura:\\n{\\n  \\\"bncc\\\": {\\n    \\\"code\\\": \\\"EF05MA07\\\",\\n    \\\"description\\\": \\\"Descrição completa da habilidade\\\",\\n    \\\"confidence\\\": 0.85\\n  },\\n  \\\"bloom\\\": {\\n    \\\"level\\\": \\\"COMPREENDER\\\",\\n    \\\"confidence\\\": 0.78\\n  },\\n  \\\"objective_questions\\\": [\\n    {\\n      \\\"question_id\\\": \\\"q-1-timestamp\\\",\\n      \\\"order\\\": 1,\\n      \\\"prompt\\\": \\\"Enunciado da questão\\\",\\n      \\\"options\\\": [\\n        {\\\"key\\\": \\\"A\\\", \\\"text\\\": \\\"Alternativa A\\\"},\\n        {\\\"key\\\": \\\"B\\\", \\\"text\\\": \\\"Alternativa B\\\"},\\n        {\\\"key\\\": \\\"C\\\", \\\"text\\\": \\\"Alternativa C\\\"},\\n        {\\\"key\\\": \\\"D\\\", \\\"text\\\": \\\"Alternativa D\\\"}\\n      ]\\n    }\\n  ],\\n  \\\"bncc_bloom_report_md\\\": \\\"### Análise BNCC\\\\n...\\\\n### Análise Bloom\\\\n...\\\",\\n  \\\"ementa_report_md\\\": \\\"### Ementa Sugerida\\\\n...\\\\n\\\",\\n  \\\"warnings\\\": []\\n}\\n\\nNíveis de Bloom válidos: LEMBRAR, COMPREENDER, APLICAR, ANALISAR, AVALIAR, CRIAR\\n\\nGere IDs únicos para cada questão no formato: q-{número}-{timestamp}\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"text\",\n          \"text\": \"Analise esta prova:\\n\\n**Disciplina:** {{ $json.disciplina }}\\n**Ano/Série:** {{ $json.ano_serie }}\\n**Habilidade (hint):** {{ $json.habilidade_hint }}\\n**Conhecimento (hint):** {{ $json.conhecimento_hint }}\\n\\nO PDF da prova está anexado abaixo. Analise-o cuidadosamente, identificando todas as questões, seu conteúdo, e forneça a análise BNCC/Bloom.\"\n        },\n        {\n          \"type\": \"file\",\n          \"file\": {\n            \"filename\": \"prova.pdf\",\n            \"file_data\": \"data:{{ $json.pdf_mime_type }};base64,{{ $json.pdf_base64 }}\"\n          }\n        }\n      ]\n    }\n  ],\n  \"max_tokens\": 4000,\n  \"temperature\": 0.3,\n  \"response_format\": { \"type\": \"json_object\" }\n}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "openai-analyze",
+      "name": "OpenAI Analyze Exam (with PDF)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_OPENAI_AUTH_CREDENTIAL_ID",
+          "name": "OpenAI Bearer Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Você é um especialista em educação inclusiva e adaptação de materiais didáticos.\\n\\nSua tarefa é adaptar uma prova para a condição: {{ $json.current_condition }}\\n\\n## Diretrizes por Condição:\\n\\n### DI (Deficiência Intelectual)\\n- Linguagem simplificada e direta\\n- Frases curtas\\n- Destacar a resposta correta quando fornecida (para eliminar distratores confusos)\\n- Separar contexto da pergunta\\n- Usar tópicos e listas\\n\\n### TEA (Transtorno do Espectro Autista)\\n- Instruções claras e literais\\n- Evitar figuras de linguagem\\n- Estrutura visual organizada\\n- Separar informações em blocos\\n\\n### DISLEXIA\\n- Recomendar fonte OpenDyslexic ou similar\\n- Espaçamento maior entre linhas (1.5)\\n- Evitar textos longos\\n- Destacar palavras-chave em negrito\\n\\n### DISGRAFIA\\n- Mais espaço para respostas\\n- Opção de resposta oral indicada\\n- Questões objetivas quando possível\\n\\n### DISCALCULIA\\n- Apoios visuais para números\\n- Tabelas de referência\\n- Passos explícitos em operações\\n\\n### TDAH\\n- Questões em páginas separadas (indicar quebras)\\n- Caixas de destaque para comandos importantes\\n- Cronômetro/tempo sugerido por questão\\n\\n## REGRAS OBRIGATÓRIAS (GUARDRAILS):\\n1. NUNCA dar a resposta no enunciado ou dicas explícitas (exceto DI com resposta fornecida)\\n2. NÃO trocar a habilidade BNCC ou objeto de conhecimento\\n3. NÃO reduzir o nível cognitivo de Bloom além do indicado\\n4. NÃO remover elementos essenciais do problema\\n\\n## Responda em Markdown bem formatado para criar um Google Doc profissional.\\n\\nInclua um cabeçalho com:\\n- Título: PROVA ADAPTADA - [CONDIÇÃO]\\n- Disciplina e Ano/Série\\n- Data\\n\\nMantenha numeração das questões e estruture de forma clara.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"text\",\n          \"text\": \"Adapte esta prova para {{ $json.current_condition }}:\\n\\n**Disciplina:** {{ $json.metadata.disciplina }}\\n**Ano/Série:** {{ $json.metadata.ano_serie }}\\n{{ $json.bncc ? '**BNCC:** ' + $json.bncc.code + ' - ' + ($json.bncc.description || '') : '' }}\\n{{ $json.bloom ? '**Bloom:** ' + $json.bloom.level : '' }}\\n\\n{{ $json.di_answers && $json.di_answers.length > 0 && $json.current_condition === 'DI' ? '**Respostas corretas para DI (destaque nas alternativas):** ' + JSON.stringify($json.di_answers) : '' }}\\n\\nO PDF da prova original está anexado. Analise-o e crie a versão adaptada completa.\"\n        },\n        {\n          \"type\": \"file\",\n          \"file\": {\n            \"filename\": \"prova.pdf\",\n            \"file_data\": \"data:{{ $json.pdf_mime_type }};base64,{{ $json.pdf_base64 }}\"\n          }\n        }\n      ]\n    }\n  ],\n  \"max_tokens\": 8000,\n  \"temperature\": 0.5\n}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "openai-generate-version",
+      "name": "OpenAI Generate Version (with PDF)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 800],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_OPENAI_AUTH_CREDENTIAL_ID",
+          "name": "OpenAI Bearer Auth"
+        }
+      }
+    }
+  ],
+  "connections": {}
+}

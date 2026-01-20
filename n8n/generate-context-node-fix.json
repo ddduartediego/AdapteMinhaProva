@@ -1,0 +1,14 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Pegar dados do webhook - tentar vários nomes\nlet webhookData = null;\nconst webhookNames = ['Webhook Generate', 'Webhook Generate1', 'Webhook Generate 1'];\nfor (const name of webhookNames) {\n  try {\n    webhookData = $(name).first()?.json;\n    if (webhookData && webhookData.exam_id) break;\n  } catch (e) { }\n}\nif (!webhookData) webhookData = {};\n\n// Pegar dados binários do download - tentar várias formas\nconst item = $input.item;\nlet pdfBase64 = null;\nlet pdfMimeType = 'application/pdf';\n\n// 1. Tentar $binary (objeto com chaves como 'data', 'file', etc)\nif (item.binary) {\n  const binaryKeys = Object.keys(item.binary);\n  if (binaryKeys.length > 0) {\n    const firstKey = binaryKeys[0];\n    const bin = item.binary[firstKey];\n    if (bin) {\n      pdfBase64 = bin.data || null;\n      pdfMimeType = bin.mimeType || 'application/pdf';\n    }\n  }\n}\n\n// 2. Se ainda não tem, verificar se veio na json\nif (!pdfBase64 && item.json) {\n  pdfBase64 = item.json.data || item.json.pdf_base64 || null;\n  if (item.json.mimeType) pdfMimeType = item.json.mimeType;\n}\n\nconsole.log('DEBUG Generate Context - exam_id:', webhookData.exam_id, 'has pdf:', !!pdfBase64, 'mimeType:', pdfMimeType);\n\nreturn {\n  json: {\n    exam_id: webhookData.exam_id || 'unknown',\n    user_email: webhookData.user?.email || '',\n    selected_conditions: webhookData.selected_conditions || [],\n    metadata: webhookData.metadata || {},\n    bncc: webhookData.bncc || null,\n    bloom: webhookData.bloom || null,\n    di_answers: webhookData.di_answers || [],\n    callback_url: webhookData.callback?.url || '',\n    pdf_base64: pdfBase64,\n    pdf_mime_type: pdfMimeType\n  }\n};"
+      },
+      "id": "set-generate-context",
+      "name": "Set Generate Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 800]
+    }
+  ]
+}

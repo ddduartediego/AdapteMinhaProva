@@ -1,0 +1,28 @@
+{
+  "meta": {
+    "instanceId": "adapte-minha-prova"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Pegar dados do webhook\nconst webhookData = $('Webhook Analyze').item.json;\n\n// Pegar dados binários do download\nconst binaryData = $input.item.binary;\nconst pdfBinary = binaryData?.data || Object.values(binaryData || {})[0];\n\nreturn {\n  json: {\n    exam_id: webhookData.exam_id,\n    user_email: webhookData.user?.email || '',\n    disciplina: webhookData.metadata?.disciplina || '',\n    ano_serie: webhookData.metadata?.ano_serie || '',\n    habilidade_hint: webhookData.metadata?.habilidade_hint || '',\n    conhecimento_hint: webhookData.metadata?.conhecimento_hint || '',\n    selected_conditions: webhookData.selected_conditions || [],\n    callback_url: webhookData.callback?.url || '',\n    pdf_base64: pdfBinary?.data || null,\n    pdf_mime_type: pdfBinary?.mimeType || 'application/pdf'\n  }\n};"
+      },
+      "id": "set-analyze-context",
+      "name": "Set Analyze Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pegar dados do webhook\nconst webhookData = $('Webhook Generate').item.json;\n\n// Pegar dados binários do download\nconst binaryData = $input.item.binary;\nconst pdfBinary = binaryData?.data || Object.values(binaryData || {})[0];\n\nreturn {\n  json: {\n    exam_id: webhookData.exam_id,\n    user_email: webhookData.user?.email || '',\n    selected_conditions: webhookData.selected_conditions || [],\n    metadata: webhookData.metadata || {},\n    bncc: webhookData.bncc || null,\n    bloom: webhookData.bloom || null,\n    di_answers: webhookData.di_answers || [],\n    callback_url: webhookData.callback?.url || '',\n    pdf_base64: pdfBinary?.data || null,\n    pdf_mime_type: pdfBinary?.mimeType || 'application/pdf'\n  }\n};"
+      },
+      "id": "set-generate-context",
+      "name": "Set Generate Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 800]
+    }
+  ],
+  "connections": {}
+}

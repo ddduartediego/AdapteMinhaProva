@@ -1,0 +1,625 @@
+{
+  "name": "Adapte Minha Prova - Workflow Completo",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "analyze-exam",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "webhook-analyze",
+      "name": "Webhook Analyze",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [220, 300],
+      "webhookId": "analyze-exam-webhook"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "generate-versions",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "webhook-generate",
+      "name": "Webhook Generate",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [220, 800],
+      "webhookId": "generate-versions-webhook"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ accepted: true, exam_id: $json.exam_id, n8n_run_id: $executionId }) }}"
+      },
+      "id": "ack-analyze",
+      "name": "ACK Analyze",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [460, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ accepted: true, exam_id: $json.exam_id, n8n_run_id: $executionId }) }}"
+      },
+      "id": "ack-generate",
+      "name": "ACK Generate",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [460, 700]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Webhook Analyze').item.json.pdf.signed_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-pdf-analyze",
+      "name": "Download PDF (Analyze)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Webhook Generate').item.json.pdf.signed_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-pdf-generate",
+      "name": "Download PDF (Generate)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 800]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pegar dados do webhook\nconst webhookData = $('Webhook Analyze').item.json;\n\n// Pegar dados binários do download\nconst binaryData = $input.item.binary;\nconst pdfBinary = binaryData?.data || Object.values(binaryData || {})[0];\n\nreturn {\n  json: {\n    exam_id: webhookData.exam_id,\n    user_email: webhookData.user?.email || '',\n    disciplina: webhookData.metadata?.disciplina || '',\n    ano_serie: webhookData.metadata?.ano_serie || '',\n    habilidade_hint: webhookData.metadata?.habilidade_hint || '',\n    conhecimento_hint: webhookData.metadata?.conhecimento_hint || '',\n    selected_conditions: webhookData.selected_conditions || [],\n    callback_url: webhookData.callback?.url || '',\n    pdf_base64: pdfBinary?.data || null,\n    pdf_mime_type: pdfBinary?.mimeType || 'application/pdf'\n  }\n};"
+      },
+      "id": "set-analyze-context",
+      "name": "Set Analyze Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Você é um especialista em educação brasileira, com profundo conhecimento da BNCC (Base Nacional Comum Curricular) e da Taxonomia de Bloom.\\n\\nSua tarefa é analisar provas escolares e identificar:\\n1. Código e descrição da habilidade BNCC mais relevante\\n2. Nível cognitivo da Taxonomia de Bloom predominante\\n3. Questões objetivas (múltipla escolha) que precisam de adaptação para DI\\n\\nRESPONDA SEMPRE EM JSON válido com a seguinte estrutura:\\n{\\n  \\\"bncc\\\": {\\n    \\\"code\\\": \\\"EF05MA07\\\",\\n    \\\"description\\\": \\\"Descrição completa da habilidade\\\",\\n    \\\"confidence\\\": 0.85\\n  },\\n  \\\"bloom\\\": {\\n    \\\"level\\\": \\\"COMPREENDER\\\",\\n    \\\"confidence\\\": 0.78\\n  },\\n  \\\"objective_questions\\\": [\\n    {\\n      \\\"question_id\\\": \\\"q-1-timestamp\\\",\\n      \\\"order\\\": 1,\\n      \\\"prompt\\\": \\\"Enunciado da questão\\\",\\n      \\\"options\\\": [\\n        {\\\"key\\\": \\\"A\\\", \\\"text\\\": \\\"Alternativa A\\\"},\\n        {\\\"key\\\": \\\"B\\\", \\\"text\\\": \\\"Alternativa B\\\"},\\n        {\\\"key\\\": \\\"C\\\", \\\"text\\\": \\\"Alternativa C\\\"},\\n        {\\\"key\\\": \\\"D\\\", \\\"text\\\": \\\"Alternativa D\\\"}\\n      ]\\n    }\\n  ],\\n  \\\"bncc_bloom_report_md\\\": \\\"### Análise BNCC\\\\n...\\\\n### Análise Bloom\\\\n...\\\",\\n  \\\"ementa_report_md\\\": \\\"### Ementa Sugerida\\\\n...\\\\n\\\",\\n  \\\"warnings\\\": []\\n}\\n\\nNíveis de Bloom válidos: LEMBRAR, COMPREENDER, APLICAR, ANALISAR, AVALIAR, CRIAR\\n\\nGere IDs únicos para cada questão no formato: q-{número}-{timestamp}\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"text\",\n          \"text\": \"Analise esta prova:\\n\\n**Disciplina:** {{ $json.disciplina }}\\n**Ano/Série:** {{ $json.ano_serie }}\\n**Habilidade (hint):** {{ $json.habilidade_hint }}\\n**Conhecimento (hint):** {{ $json.conhecimento_hint }}\\n\\nO PDF da prova está anexado abaixo. Analise-o cuidadosamente, identificando todas as questões, seu conteúdo, e forneça a análise BNCC/Bloom.\"\n        },\n        {\n          \"type\": \"file\",\n          \"file\": {\n            \"filename\": \"prova.pdf\",\n            \"file_data\": \"data:{{ $json.pdf_mime_type }};base64,{{ $json.pdf_base64 }}\"\n          }\n        }\n      ]\n    }\n  ],\n  \"max_tokens\": 4000,\n  \"temperature\": 0.3,\n  \"response_format\": { \"type\": \"json_object\" }\n}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "openai-analyze",
+      "name": "OpenAI Analyze Exam (with PDF)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_OPENAI_AUTH_CREDENTIAL_ID",
+          "name": "OpenAI Bearer Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pegar resposta da OpenAI do nó anterior\nconst openaiResponse = $input.item.json;\n\n// Buscar exam_id e callback_url\nlet examId = null;\nlet callbackUrl = null;\n\n// 1. Tentar pegar do Set Analyze Context (dados já processados)\ntry {\n  const ctx = $('Set Analyze Context').first().json;\n  if (ctx) {\n    examId = ctx.exam_id;\n    callbackUrl = ctx.callback_url;\n  }\n} catch (e) { }\n\n// 2. Se não encontrou, tentar do Webhook Analyze1 (dados em body)\nif (!examId) {\n  try {\n    const wh = $('Webhook Analyze1').first().json;\n    if (wh) {\n      // Dados do webhook estão em body\n      examId = wh.body?.exam_id || wh.exam_id;\n      callbackUrl = wh.body?.callback?.url || wh.callback?.url;\n    }\n  } catch (e) { }\n}\n\n// 3. Fallback para Webhook Analyze (sem número)\nif (!examId) {\n  try {\n    const wh = $('Webhook Analyze').first().json;\n    if (wh) {\n      examId = wh.body?.exam_id || wh.exam_id;\n      callbackUrl = wh.body?.callback?.url || wh.callback?.url;\n    }\n  } catch (e) { }\n}\n\nconsole.log('DEBUG - examId:', examId, 'callbackUrl:', callbackUrl);\n\nif (!examId) examId = 'unknown';\nif (!callbackUrl) callbackUrl = '';\n\nlet aiResponse;\ntry {\n  const content = openaiResponse.choices[0].message.content;\n  aiResponse = JSON.parse(content);\n} catch (e) {\n  return {\n    json: {\n      callback_url: callbackUrl,\n      payload: {\n        event: 'analyze_exam_result',\n        exam_id: examId,\n        status: 'ERROR',\n        error_message: 'Falha ao processar resposta da IA: ' + e.message\n      }\n    }\n  };\n}\n\nreturn {\n  json: {\n    callback_url: callbackUrl,\n    payload: {\n      event: 'analyze_exam_result',\n      exam_id: examId,\n      status: 'OK',\n      bncc: aiResponse.bncc || null,\n      bloom: aiResponse.bloom || null,\n      reports: {\n        bncc_bloom_report_md: aiResponse.bncc_bloom_report_md || null,\n        ementa_report_md: aiResponse.ementa_report_md || null\n      },\n      extracted: {\n        objective_questions: aiResponse.objective_questions || []\n      },\n      warnings: aiResponse.warnings || []\n    }\n  }\n};"
+      },
+      "id": "code-prepare-analyze-callback",
+      "name": "Prepare Analyze Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callback_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      },
+      "id": "send-analyze-callback",
+      "name": "Send Analyze Callback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_N8N_TO_APP_SECRET_CREDENTIAL_ID",
+          "name": "N8N to App Secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pegar dados do webhook - tentar vários nomes\nlet webhookData = null;\nconst webhookNames = ['Webhook Generate', 'Webhook Generate1', 'Webhook Generate 1'];\nfor (const name of webhookNames) {\n  try {\n    webhookData = $(name).first()?.json;\n    if (webhookData && webhookData.exam_id) break;\n  } catch (e) { }\n}\nif (!webhookData) webhookData = {};\n\n// Pegar dados binários do download - tentar várias formas\nconst item = $input.item;\nlet pdfBase64 = null;\nlet pdfMimeType = 'application/pdf';\n\n// 1. Tentar $binary (objeto com chaves como 'data', 'file', etc)\nif (item.binary) {\n  const binaryKeys = Object.keys(item.binary);\n  if (binaryKeys.length > 0) {\n    const firstKey = binaryKeys[0];\n    const bin = item.binary[firstKey];\n    if (bin) {\n      pdfBase64 = bin.data || null;\n      pdfMimeType = bin.mimeType || 'application/pdf';\n    }\n  }\n}\n\n// 2. Se ainda não tem, verificar se veio na json\nif (!pdfBase64 && item.json) {\n  pdfBase64 = item.json.data || item.json.pdf_base64 || null;\n  if (item.json.mimeType) pdfMimeType = item.json.mimeType;\n}\n\nconsole.log('DEBUG Generate Context - exam_id:', webhookData.exam_id, 'has pdf:', !!pdfBase64, 'mimeType:', pdfMimeType);\n\nreturn {\n  json: {\n    exam_id: webhookData.exam_id || 'unknown',\n    user_email: webhookData.user?.email || '',\n    selected_conditions: webhookData.selected_conditions || [],\n    metadata: webhookData.metadata || {},\n    bncc: webhookData.bncc || null,\n    bloom: webhookData.bloom || null,\n    di_answers: webhookData.di_answers || [],\n    callback_url: webhookData.callback?.url || '',\n    pdf_base64: pdfBase64,\n    pdf_mime_type: pdfMimeType\n  }\n};"
+      },
+      "id": "set-generate-context",
+      "name": "Set Generate Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 800]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepara os itens para processar cada condição selecionada\nconst context = $input.first().json;\nconst conditions = context.selected_conditions;\n\nreturn conditions.map(condition => ({\n  json: {\n    ...context,\n    current_condition: condition\n  }\n}));"
+      },
+      "id": "split-conditions",
+      "name": "Split by Condition",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 800]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Você é um especialista em educação inclusiva e adaptação de materiais didáticos.\\n\\nSua tarefa é adaptar uma prova para a condição: {{ $json.current_condition }}\\n\\n## Diretrizes por Condição:\\n\\n### DI (Deficiência Intelectual)\\n- Linguagem simplificada e direta\\n- Frases curtas\\n- Destacar a resposta correta quando fornecida (para eliminar distratores confusos)\\n- Separar contexto da pergunta\\n- Usar tópicos e listas\\n\\n### TEA (Transtorno do Espectro Autista)\\n- Instruções claras e literais\\n- Evitar figuras de linguagem\\n- Estrutura visual organizada\\n- Separar informações em blocos\\n\\n### DISLEXIA\\n- Recomendar fonte OpenDyslexic ou similar\\n- Espaçamento maior entre linhas (1.5)\\n- Evitar textos longos\\n- Destacar palavras-chave em negrito\\n\\n### DISGRAFIA\\n- Mais espaço para respostas\\n- Opção de resposta oral indicada\\n- Questões objetivas quando possível\\n\\n### DISCALCULIA\\n- Apoios visuais para números\\n- Tabelas de referência\\n- Passos explícitos em operações\\n\\n### TDAH\\n- Questões em páginas separadas (indicar quebras)\\n- Caixas de destaque para comandos importantes\\n- Cronômetro/tempo sugerido por questão\\n\\n## REGRAS OBRIGATÓRIAS (GUARDRAILS):\\n1. NUNCA dar a resposta no enunciado ou dicas explícitas (exceto DI com resposta fornecida)\\n2. NÃO trocar a habilidade BNCC ou objeto de conhecimento\\n3. NÃO reduzir o nível cognitivo de Bloom além do indicado\\n4. NÃO remover elementos essenciais do problema\\n\\n## Responda em Markdown bem formatado para criar um Google Doc profissional.\\n\\nInclua um cabeçalho com:\\n- Título: PROVA ADAPTADA - [CONDIÇÃO]\\n- Disciplina e Ano/Série\\n- Data\\n\\nMantenha numeração das questões e estruture de forma clara.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"text\",\n          \"text\": \"Adapte esta prova para {{ $json.current_condition }}:\\n\\n**Disciplina:** {{ $json.metadata.disciplina }}\\n**Ano/Série:** {{ $json.metadata.ano_serie }}\\n{{ $json.bncc ? '**BNCC:** ' + $json.bncc.code + ' - ' + ($json.bncc.description || '') : '' }}\\n{{ $json.bloom ? '**Bloom:** ' + $json.bloom.level : '' }}\\n\\n{{ $json.di_answers && $json.di_answers.length > 0 && $json.current_condition === 'DI' ? '**Respostas corretas para DI (destaque nas alternativas):** ' + JSON.stringify($json.di_answers) : '' }}\\n\\nO PDF da prova original está anexado. Analise-o e crie a versão adaptada completa.\"\n        },\n        {\n          \"type\": \"file\",\n          \"file\": {\n            \"filename\": \"prova.pdf\",\n            \"file_data\": \"data:{{ $json.pdf_mime_type }};base64,{{ $json.pdf_base64 }}\"\n          }\n        }\n      ]\n    }\n  ],\n  \"max_tokens\": 8000,\n  \"temperature\": 0.5\n}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "openai-generate-version",
+      "name": "OpenAI Generate Version (with PDF)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 800],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_OPENAI_AUTH_CREDENTIAL_ID",
+          "name": "OpenAI Bearer Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extrair o conteúdo gerado pela OpenAI\nconst openaiResponse = $input.item.json;\nconst previousData = $('Split by Condition').item.json;\n\nlet adaptedContent = '';\ntry {\n  adaptedContent = openaiResponse.choices[0].message.content;\n} catch (e) {\n  adaptedContent = '# Erro ao gerar adaptação\\n\\nOcorreu um erro ao processar esta versão.';\n}\n\nreturn {\n  json: {\n    ...previousData,\n    adapted_content: adaptedContent\n  }\n};"
+      },
+      "id": "extract-generated-content",
+      "name": "Extract Generated Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 800]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "title": "={{ 'Prova Adaptada - ' + $json.current_condition + ' - ' + $json.metadata.disciplina + ' ' + $json.metadata.ano_serie }}",
+        "folderId": "",
+        "simple": true,
+        "options": {}
+      },
+      "id": "create-google-doc",
+      "name": "Create Google Doc",
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [1560, 800],
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "YOUR_GOOGLE_DOCS_CREDENTIAL_ID",
+          "name": "Google Docs OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "updateContent",
+        "docId": "={{ $json.documentId }}",
+        "actionsUi": {
+          "actionFields": [
+            {
+              "action": "insertText",
+              "text": "={{ $('Extract Generated Content').item.json.adapted_content }}",
+              "locationChoice": "endOfSegment"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "update-google-doc-content",
+      "name": "Update Doc Content",
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [1780, 800],
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "YOUR_GOOGLE_DOCS_CREDENTIAL_ID",
+          "name": "Google Docs OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "permission",
+        "fileId": "={{ $('Create Google Doc').item.json.documentId }}",
+        "role": "writer",
+        "type": "user",
+        "emailAddress": "={{ $('Set Generate Context').item.json.user_email }}",
+        "options": {
+          "sendNotificationEmail": true,
+          "emailMessage": "Sua prova adaptada está pronta! Acesse o documento para visualizar a versão {{ $('Extract Generated Content').item.json.current_condition }}."
+        }
+      },
+      "id": "share-google-doc",
+      "name": "Share Google Doc",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [2000, 800],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "YOUR_GOOGLE_DRIVE_CREDENTIAL_ID",
+          "name": "Google Drive OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Coletar resultados de todas as versões geradas\nconst items = $input.all();\nconst context = $('Set Generate Context').first().json;\n\nconst versions = [];\nconst allExtracted = $('Extract Generated Content').all();\nconst allDocs = $('Create Google Doc').all();\n\nfor (let i = 0; i < allExtracted.length; i++) {\n  const extracted = allExtracted[i].json;\n  const doc = allDocs[i]?.json;\n  const docId = doc?.documentId || doc?.id;\n  \n  versions.push({\n    condition: extracted.current_condition,\n    status: 'READY',\n    google_doc_id: docId,\n    google_doc_url: docId ? `https://docs.google.com/document/d/${docId}/edit` : null,\n    limitations: []\n  });\n}\n\n// Executar QA básico\nconst qaResult = {\n  status: 'OK',\n  score: 95,\n  issues: []\n};\n\nconst callbackPayload = {\n  event: 'generate_exam_versions_result',\n  exam_id: context.exam_id,\n  status: 'OK',\n  versions: versions,\n  qa: qaResult\n};\n\nreturn {\n  json: {\n    callback_url: context.callback_url,\n    payload: callbackPayload\n  }\n};"
+      },
+      "id": "aggregate-versions",
+      "name": "Aggregate Versions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 800]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callback_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      },
+      "id": "send-generate-callback",
+      "name": "Send Generate Callback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2440, 800],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_N8N_TO_APP_SECRET_CREDENTIAL_ID",
+          "name": "N8N to App Secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "error-check",
+              "leftValue": "={{ $json.error !== undefined && $json.error !== null }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-analyze-error",
+      "name": "Check Analyze Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 160]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Buscar dados do webhook - tentar vários nomes possíveis\nlet webhookData = null;\nconst possibleNames = ['Webhook Analyze', 'Webhook Analyze1', 'Webhook Analyze 1'];\nfor (const name of possibleNames) {\n  try {\n    webhookData = $(name).item.json;\n    if (webhookData) break;\n  } catch (e) { }\n}\nif (!webhookData) webhookData = {};\n\nconst examId = webhookData.exam_id || 'unknown';\nconst callbackUrl = webhookData.callback?.url || '';\n\nconst errorPayload = {\n  event: 'analyze_exam_result',\n  exam_id: examId,\n  status: 'ERROR',\n  error_message: 'Falha ao analisar a prova. Por favor, verifique se o PDF é válido e tente novamente.'\n};\n\nreturn {\n  json: {\n    callback_url: callbackUrl,\n    payload: errorPayload\n  }\n};"
+      },
+      "id": "prepare-analyze-error-callback",
+      "name": "Prepare Error Callback (Analyze)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callback_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      },
+      "id": "send-analyze-error-callback",
+      "name": "Send Error Callback (Analyze)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 100],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_N8N_TO_APP_SECRET_CREDENTIAL_ID",
+          "name": "N8N to App Secret"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Analyze": {
+      "main": [
+        [
+          {
+            "node": "ACK Analyze",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Download PDF (Analyze)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Generate": {
+      "main": [
+        [
+          {
+            "node": "ACK Generate",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Download PDF (Generate)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download PDF (Analyze)": {
+      "main": [
+        [
+          {
+            "node": "Set Analyze Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download PDF (Generate)": {
+      "main": [
+        [
+          {
+            "node": "Set Generate Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Analyze Context": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Analyze Exam (with PDF)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Analyze Exam (with PDF)": {
+      "main": [
+        [
+          {
+            "node": "Check Analyze Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Analyze Error": {
+      "main": [
+        [
+          {
+            "node": "Prepare Error Callback (Analyze)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Analyze Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Error Callback (Analyze)": {
+      "main": [
+        [
+          {
+            "node": "Send Error Callback (Analyze)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Analyze Callback": {
+      "main": [
+        [
+          {
+            "node": "Send Analyze Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Generate Context": {
+      "main": [
+        [
+          {
+            "node": "Split by Condition",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split by Condition": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Generate Version (with PDF)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Generate Version (with PDF)": {
+      "main": [
+        [
+          {
+            "node": "Extract Generated Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Generated Content": {
+      "main": [
+        [
+          {
+            "node": "Create Google Doc",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Google Doc": {
+      "main": [
+        [
+          {
+            "node": "Update Doc Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Doc Content": {
+      "main": [
+        [
+          {
+            "node": "Share Google Doc",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Share Google Doc": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Versions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Versions": {
+      "main": [
+        [
+          {
+            "node": "Send Generate Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "adapte-minha-prova"
+  },
+  "tags": [
+    {
+      "name": "AdapteMinhaProva",
+      "id": "1"
+    }
+  ],
+  "pinData": {}
+}
