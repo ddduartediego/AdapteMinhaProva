@@ -12,7 +12,7 @@ import { ExamStatusBadge } from '@/components/status-badge'
 import { DiAnswersForm } from '@/components/exams/di-answers-form'
 import { VersionCard } from '@/components/exams/version-card'
 import { ExamStatusStepper } from '@/components/exams/exam-status-stepper'
-import { useExamRealtime } from '@/hooks/use-exam-realtime'
+import { useExamPolling } from '@/hooks/use-exam-realtime'
 import { useToast } from '@/hooks/use-toast'
 import { formatDateTime } from '@/lib/utils'
 import type { ExamFull, ExamStatus } from '@/types/database'
@@ -26,71 +26,79 @@ export function ExamDetailClient({ initialExam }: ExamDetailClientProps) {
   const { toast } = useToast()
   const [exam, setExam] = useState<ExamFull>(initialExam)
   const [isPending, startTransition] = useTransition()
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
 
   // Check if DI is selected to show appropriate stepper
   const hasDI = exam.selected_conditions.includes('DI')
 
-  // Callback quando o exam muda via Realtime
-  const handleExamChange = useCallback(
-    (payload: { new: { status: ExamStatus } }) => {
-      const newStatus = payload.new.status
-      const oldStatus = exam.status
-
-      // Se o status mudou para um estado "pronto", mostrar toast
-      if (
-        newStatus !== oldStatus &&
-        (newStatus === 'READY' ||
-          newStatus === 'PARTIAL_READY' ||
-          newStatus === 'WAITING_DI_INPUT')
-      ) {
-        const messages: Record<string, string> = {
-          READY: 'Suas versões adaptadas estão prontas!',
-          PARTIAL_READY: 'Versões geradas com algumas limitações.',
-          WAITING_DI_INPUT: 'Análise concluída! Preencha as respostas para DI.',
-        }
-
-        toast({
-          title: 'Atualização',
-          description: messages[newStatus],
-          variant: newStatus === 'READY' ? 'success' : 'default',
-        })
-      }
-
-      // Atualizar dados via router.refresh para buscar dados atualizados
-      setLastUpdate(new Date())
-      startTransition(() => {
-        router.refresh()
-      })
-    },
-    [exam.status, router, toast]
-  )
-
-  // Callback quando versions/questions mudam
-  const handleVersionChange = useCallback(() => {
-    setLastUpdate(new Date())
-    startTransition(() => {
-      router.refresh()
-    })
-  }, [router])
-
-  // Ativar subscription do Realtime
-  useExamRealtime({
-    examId: exam.id,
-    onExamChange: handleExamChange,
-    onVersionChange: handleVersionChange,
-  })
-
-  // Atualizar estado local quando os dados são refetchados pelo server
-  // Isso é feito comparando o initialExam com o estado atual
-  if (initialExam.updated_at !== exam.updated_at) {
-    setExam(initialExam)
-  }
-
+  // Verificar se está em estado de processamento (precisa de polling)
   const isProcessing =
     exam.status === 'ANALYZING' ||
     exam.status === 'GENERATING' ||
     exam.status === 'READY_TO_GENERATE'
+
+  // Callback quando o status muda
+  const handleStatusChange = useCallback(
+    (newStatus: ExamStatus, oldStatus: ExamStatus) => {
+      // Mostrar toast para estados finais
+      if (
+        newStatus === 'READY' ||
+        newStatus === 'PARTIAL_READY' ||
+        newStatus === 'WAITING_DI_INPUT' ||
+        newStatus === 'FAILED'
+      ) {
+        const messages: Record<string, { title: string; description: string; variant: 'default' | 'success' | 'destructive' }> = {
+          READY: {
+            title: 'Pronto!',
+            description: 'Suas versões adaptadas estão prontas!',
+            variant: 'success',
+          },
+          PARTIAL_READY: {
+            title: 'Parcialmente pronto',
+            description: 'Versões geradas com algumas limitações.',
+            variant: 'default',
+          },
+          WAITING_DI_INPUT: {
+            title: 'Análise concluída',
+            description: 'Preencha as respostas corretas para DI.',
+            variant: 'default',
+          },
+          FAILED: {
+            title: 'Erro',
+            description: 'Ocorreu um erro no processamento.',
+            variant: 'destructive',
+          },
+        }
+
+        const msg = messages[newStatus]
+        if (msg) {
+          toast({
+            title: msg.title,
+            description: msg.description,
+            variant: msg.variant,
+          })
+        }
+      }
+
+      // Atualizar dados via router.refresh
+      startTransition(() => {
+        router.refresh()
+      })
+    },
+    [router, toast]
+  )
+
+  // Ativar polling apenas quando está processando
+  useExamPolling({
+    examId: exam.id,
+    onStatusChange: handleStatusChange,
+    interval: 3000,
+    enabled: isProcessing,
+  })
+
+  // Atualizar estado local quando os dados são refetchados pelo server
+  if (initialExam.updated_at !== exam.updated_at) {
+    setExam(initialExam)
+  }
 
   return (
     <div className="mx-auto max-w-4xl space-y-8">
@@ -103,14 +111,14 @@ export function ExamDetailClient({ initialExam }: ExamDetailClientProps) {
           </Link>
         </Button>
 
-        {/* Indicador de atualização em tempo real */}
+        {/* Indicador de atualização automática */}
         {isProcessing && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <div className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
             </div>
-            <span>Atualizando em tempo real</span>
+            <span>Atualizando automaticamente</span>
             {isPending && <RefreshCw className="h-3 w-3 animate-spin" />}
           </div>
         )}
@@ -136,12 +144,6 @@ export function ExamDetailClient({ initialExam }: ExamDetailClientProps) {
             <div className="flex items-center gap-1.5">
               <Tag className="h-4 w-4" />
               {exam.bncc_code}
-            </div>
-          )}
-          {lastUpdate && (
-            <div className="flex items-center gap-1.5 text-xs">
-              <RefreshCw className="h-3 w-3" />
-              Atualizado: {formatDateTime(lastUpdate)}
             </div>
           )}
         </div>
@@ -249,7 +251,7 @@ export function ExamDetailClient({ initialExam }: ExamDetailClientProps) {
           </div>
         )}
 
-      {/* Loading states - includes READY_TO_GENERATE as it transitions immediately to GENERATING */}
+      {/* Loading states */}
       {isProcessing && (
         <Card className="border-primary/50">
           <CardContent className="flex flex-col items-center justify-center py-12">
