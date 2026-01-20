@@ -611,4 +611,85 @@ O GPT-4o Vision analisa o documento visualmente, preservando contexto de layout,
 
 ---
 
+## Fase 9: Melhorias de UX
+
+### 9.1 Atualização em Tempo Real com Supabase Realtime (20/01/2026)
+
+**Problema:** Após enviar a prova para processamento, o usuário precisava atualizar a página manualmente para ver o progresso e os resultados. Isso criava uma experiência frustrante, especialmente durante os estados de `ANALYZING` e `GENERATING`.
+
+**Solução:** Implementação de Supabase Realtime para escutar mudanças no banco de dados e atualizar a UI automaticamente.
+
+**Arquivos criados/modificados:**
+
+| Arquivo | Tipo | Função |
+|---------|------|--------|
+| `src/hooks/use-exam-realtime.ts` | Novo | Hook para gerenciar subscriptions do Supabase Realtime |
+| `src/components/exams/exam-detail-client.tsx` | Novo | Client Component com estado reativo e subscriptions |
+| `src/app/(protected)/app/exams/[id]/page.tsx` | Modificado | Refatorado para usar padrão híbrido Server + Client |
+| `supabase/migrations/002_enable_realtime.sql` | Novo | Migration para habilitar Realtime nas tabelas |
+
+**Arquitetura implementada:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Fluxo de Dados                           │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1. Usuário acessa /app/exams/{id}                          │
+│                    ↓                                        │
+│  2. Server Component busca dados iniciais (SSR)             │
+│                    ↓                                        │
+│  3. Client Component recebe dados e inicia subscription     │
+│                    ↓                                        │
+│  4. n8n processa e envia callback → banco atualiza          │
+│                    ↓                                        │
+│  5. Supabase Realtime notifica Client via WebSocket         │
+│                    ↓                                        │
+│  6. Client dispara router.refresh() para re-fetch           │
+│                    ↓                                        │
+│  7. UI atualiza automaticamente                             │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Hook `useExamRealtime`:**
+- Escuta UPDATE na tabela `exams` filtrado por `id=eq.{examId}`
+- Escuta INSERT/UPDATE/DELETE na tabela `exam_versions` filtrado por `exam_id`
+- Escuta mudanças na tabela `exam_questions` para atualizar formulário DI
+- Cleanup automático via useEffect return
+
+**Client Component `ExamDetailClient`:**
+- Recebe dados iniciais via props do Server Component
+- Mantém estado local para permitir re-renderização
+- Usa `useTransition` para indicar loading durante refresh
+- Exibe indicador visual "Atualizando em tempo real" durante processamento
+- Mostra toast quando status muda para estados finais
+
+**Indicadores visuais adicionados:**
+- Dot pulsante verde durante estados de processamento
+- Spinner quando está fazendo refresh
+- Timestamp da última atualização
+- Mensagem "Esta página atualiza automaticamente" no card de loading
+
+**Migration SQL `002_enable_realtime.sql`:**
+1. `REPLICA IDENTITY FULL` nas tabelas para receber dados completos no payload
+2. Adiciona tabelas à publicação `supabase_realtime`
+3. Idempotente (verifica antes de adicionar)
+
+**Para aplicar a migration:**
+```bash
+# Via Supabase CLI
+supabase db push
+
+# Ou manualmente no Supabase Dashboard > SQL Editor
+```
+
+**Benefícios:**
+- UX significativamente melhorada: usuário não precisa atualizar página
+- Feedback em tempo real do progresso
+- Uso eficiente de recursos (WebSocket vs polling)
+- Compatível com RLS (usuário só recebe updates dos próprios exams)
+
+---
+
 *Documento gerado automaticamente durante o desenvolvimento.*
